@@ -132,8 +132,14 @@ ABC1D23
 XYZ4B56"></textarea>
   <div class="dica">Cada placa é gravada nos dois formatos automaticamente. Se a lista está no padrão antigo e o carro já trocou para Mercosul, o alerta continua disparando.</div>
   <div class="btns">
-    <button class="primario" id="btnCarregar">Carregar lista</button>
+    <button class="primario" id="btnCarregar">Carregar lista colada</button>
+    <button id="btnCsvIn">Carregar arquivo CSV</button>
   </div>
+  <input type="file" id="arqCsv" accept=".csv,text/csv" style="display:none">
+  <label style="display:flex;align-items:center;gap:9px;margin-top:12px;text-transform:none;letter-spacing:0;color:var(--texto);font-size:13px">
+    <input type="checkbox" id="soVigentes" style="width:auto;margin:0;flex:0 0 auto">
+    Carregar só placas com ordem vigente (coluna <code>validade_ordem</code> com data futura)
+  </label>
   <div class="fluxo" id="resumoLista"></div>
 </section>
 
@@ -224,22 +230,100 @@ function formatos(bruta){
   return null;
 }
 
-function carregarLista(){
-  const linhas = $('lista').value.split(/[\n,;]+/).map(limpa).filter(Boolean);
+function construir(entradas){
+  // entradas: [{placa, validade, processo, status}]
   lista = []; indice = new Map();
   const ruins = [];
-  for(const l of linhas){
-    const f = formatos(l);
-    if(!f){ ruins.push(l); continue; }
+  for(const e of entradas){
+    const f = formatos(e.placa);
+    if(!f){ if(e.placa) ruins.push(e.placa); continue; }
     const chaves = [f.mercosul]; if(f.antiga) chaves.push(f.antiga);
-    const item = {exibe:l, antiga:f.antiga, mercosul:f.mercosul, chaves};
+    const item = {exibe:e.placa, antiga:f.antiga, mercosul:f.mercosul, chaves,
+                  validade:e.validade||'', processo:e.processo||'', status:e.status||''};
     lista.push(item);
     chaves.forEach(c => indice.set(c, item));
   }
   $('qtdLista').textContent = lista.length + (lista.length===1?' placa':' placas');
+  return ruins;
+}
+
+function carregarLista(){
+  const linhas = $('lista').value.split(/[\n,;]+/).map(limpa).filter(Boolean);
+  const ruins = construir(linhas.map(p => ({placa:p})));
   $('resumoLista').textContent = ruins.length
     ? 'Fora do padrão, ignoradas: ' + ruins.join(' ')
     : (lista.length ? lista.length + ' placas prontas — ' + indice.size + ' variações monitoradas.' : 'Cole ao menos uma placa.');
+}
+
+/* ---------- importar CSV ---------- */
+function parseCSV(txt){
+  const linhas=[]; let campo='', linha=[], dentro=false;
+  txt = txt.replace(/^﻿/,'').replace(/\r\n?/g,'\n');
+  for(let i=0;i<txt.length;i++){
+    const c = txt[i];
+    if(dentro){
+      if(c === '"'){ if(txt[i+1] === '"'){ campo+='"'; i++; } else dentro=false; }
+      else campo += c;
+    } else if(c === '"'){ dentro = true; }
+    else if(c === ',' || c === ';'){ linha.push(campo); campo=''; }
+    else if(c === '\n'){ linha.push(campo); linhas.push(linha); linha=[]; campo=''; }
+    else campo += c;
+  }
+  if(campo.length || linha.length){ linha.push(campo); linhas.push(linha); }
+  return linhas;
+}
+function cab(h){ return (h||'').toUpperCase().replace(/[^A-Z0-9]/g,''); }
+function achaCol(cabs, nomes){ for(const n of nomes){ const i = cabs.indexOf(n); if(i>=0) return i; } return -1; }
+function parseData(s){
+  s=(s||'').trim(); if(!s) return null;
+  let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+  if(m) return new Date(+m[3], +m[2]-1, +m[1]);
+  m = s.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/);
+  if(m) return new Date(+m[1], +m[2]-1, +m[3]);
+  return null;
+}
+function lerCSV(file){
+  const fr = new FileReader();
+  fr.onload = ev => {
+    const linhas = parseCSV(ev.target.result).filter(l => l.some(c => (c||'').trim() !== ''));
+    if(linhas.length < 2){ $('resumoLista').textContent = 'CSV vazio ou sem linhas de dados.'; return; }
+    const cabs = linhas[0].map(cab);
+    const iP = achaCol(cabs, ['PLACA','PLACAS','PLACAMERCOSUL']);
+    if(iP < 0){ $('resumoLista').textContent = 'Não encontrei a coluna de placa (esperado: placa, placas ou placa_mercosul).'; return; }
+    const iV = achaCol(cabs, ['VALIDADEORDEM','VALIDADE']);
+    const iPr = achaCol(cabs, ['PROCESSO']);
+    const iS = achaCol(cabs, ['STATUSORDEM','STATUS']);
+    const soVig = $('soVigentes').checked;
+    const hoje = new Date(); hoje.setHours(0,0,0,0);
+    let semData=0, vencidas=0, vigentes=0;
+    const usadas=[];
+    for(let k=1;k<linhas.length;k++){
+      const row = linhas[k];
+      const placa = limpa(row[iP]||'');
+      if(!placa) continue;
+      const validade = iV>=0 ? (row[iV]||'') : '';
+      const d = parseData(validade);
+      const vig = !!validade && d && d>=hoje;
+      const venc = !!validade && d && d<hoje;
+      if(!validade) semData++; else if(vig) vigentes++; else if(venc) vencidas++;
+      if(soVig && !vig) continue;
+      usadas.push({placa, validade, processo:iPr>=0?(row[iPr]||''):'', status:iS>=0?(row[iS]||''):''});
+    }
+    $('lista').value = usadas.map(e => e.placa).join('\n');
+    const ruins = construir(usadas);
+    let msg = usadas.length + ' placas carregadas';
+    if(ruins.length) msg += ' (' + ruins.length + ' fora do padrão ignoradas)';
+    msg += '. ';
+    if(iV < 0){
+      msg += 'O arquivo não tem a coluna validade_ordem — nenhuma dessas placas tem ordem comprovada aqui.';
+    } else {
+      msg += vigentes + ' com ordem vigente, ' + vencidas + ' vencidas, ' + semData + ' sem data.';
+      if(soVig) msg += ' Carreguei só as vigentes.';
+      else if(semData + vencidas > 0) msg += ' ATENÇÃO: ' + (semData + vencidas) + ' sem ordem vigente comprovável.';
+    }
+    $('resumoLista').textContent = msg;
+  };
+  fr.readAsText(file, 'UTF-8');
 }
 
 /* ---------- comparação ---------- */
@@ -321,7 +405,7 @@ function disparar(item, lida, exato){
     f.lang = 'pt-BR'; f.rate = .85; speechSynthesis.speak(f);
   }catch(e){}
 
-  const reg = {placa:item.mercosul, antiga:item.antiga||'', lida, exato, quando:new Date().toISOString(), lat:'', lon:''};
+  const reg = {placa:item.mercosul, antiga:item.antiga||'', processo:item.processo||'', lida, exato, quando:new Date().toISOString(), lat:'', lon:''};
   navigator.geolocation && navigator.geolocation.getCurrentPosition(pos => {
     reg.lat = pos.coords.latitude.toFixed(6);
     reg.lon = pos.coords.longitude.toFixed(6);
@@ -382,8 +466,8 @@ function parar(){
 /* ---------- CSV ---------- */
 function csv(){
   if(!hits.length){ mostrarFluxo('Nada para exportar ainda.'); return; }
-  const linhas = [['placa_mercosul','placa_antiga','placa_lida','match_exato','data_hora','latitude','longitude']]
-    .concat(hits.map(h => [h.placa,h.antiga,h.lida,h.exato?'sim':'nao',h.quando,h.lat,h.lon]));
+  const linhas = [['placa_mercosul','placa_antiga','processo','placa_lida','match_exato','data_hora','latitude','longitude']]
+    .concat(hits.map(h => [h.placa,h.antiga,h.processo||'',h.lida,h.exato?'sim':'nao',h.quando,h.lat,h.lon]));
   const txt = linhas.map(l => l.join(';')).join('\n');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([txt], {type:'text/csv'}));
@@ -392,6 +476,8 @@ function csv(){
 
 /* ---------- eventos ---------- */
 $('btnCarregar').onclick = carregarLista;
+$('btnCsvIn').onclick = () => $('arqCsv').click();
+$('arqCsv').onchange = e => { const f = e.target.files[0]; if(f) lerCSV(f); e.target.value=''; };
 $('btnAoVivo').onclick = iniciar;
 $('btnParar').onclick = parar;
 $('btnCsv').onclick = csv;
