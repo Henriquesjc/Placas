@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Leitor de Placas — Localização</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;900&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --asfalto:#0D1012;
+  --painel:#171C1F;
+  --painel2:#1F262A;
+  --linha:#2B343A;
+  --texto:#E6EBEC;
+  --apagado:#79868C;
+  --ambar:#FFB020;
+  --instr:#6FA8C7;
+  --placa:#F0F2ED;
+  --faixa:#1B3FA0;
+  --alerta-fundo:#3A2400;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  background:var(--asfalto);
+  color:var(--texto);
+  font-family:'Archivo',system-ui,-apple-system,sans-serif;
+  font-size:15px;
+  line-height:1.45;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  overscroll-behavior:none;
+}
+.wrap{max-width:760px;margin:0 auto;padding:14px 14px 40px}
+
+/* ---- cabeçalho ---- */
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 2px 16px;border-bottom:1px solid var(--linha);margin-bottom:16px}
+.marca{font-weight:900;letter-spacing:-.02em;font-size:17px;text-transform:uppercase}
+.marca span{color:var(--instr)}
+.pill{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:5px 9px;border:1px solid var(--linha);border-radius:3px;color:var(--apagado);white-space:nowrap}
+.pill.on{color:var(--instr);border-color:var(--instr)}
+
+/* ---- blocos ---- */
+.bloco{background:var(--painel);border:1px solid var(--linha);border-radius:6px;padding:14px;margin-bottom:14px}
+.rot{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--apagado);margin-bottom:10px;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.rot b{color:var(--instr);font-weight:600}
+label{display:block;font-size:12px;color:var(--apagado);margin:12px 0 5px;text-transform:uppercase;letter-spacing:.06em}
+label:first-of-type{margin-top:0}
+input,textarea,select{
+  width:100%;background:var(--asfalto);border:1px solid var(--linha);color:var(--texto);
+  border-radius:4px;padding:11px 12px;font-family:'IBM Plex Mono',monospace;font-size:14px;
+}
+input:focus,textarea:focus,select:focus{outline:2px solid var(--instr);outline-offset:1px;border-color:transparent}
+textarea{min-height:110px;resize:vertical;line-height:1.7}
+.dica{font-size:12px;color:var(--apagado);margin-top:6px;line-height:1.5}
+
+/* ---- botões ---- */
+.btns{display:flex;gap:9px;flex-wrap:wrap;margin-top:14px}
+button{
+  font-family:'Archivo',sans-serif;font-weight:700;font-size:14px;letter-spacing:.01em;
+  background:var(--painel2);color:var(--texto);border:1px solid var(--linha);
+  border-radius:4px;padding:13px 18px;cursor:pointer;flex:1 1 auto;min-height:48px;
+  transition:background .12s ease,border-color .12s ease;
+}
+button:hover{background:#283237}
+button:focus-visible{outline:2px solid var(--instr);outline-offset:2px}
+button.primario{background:var(--instr);color:#06171F;border-color:var(--instr)}
+button.primario:hover{background:#8CBDD8}
+button.parar{background:transparent;color:var(--ambar);border-color:var(--ambar)}
+button:disabled{opacity:.35;cursor:not-allowed}
+
+/* ---- câmera ---- */
+.camera{position:relative;background:#000;border:1px solid var(--linha);border-radius:6px;overflow:hidden;aspect-ratio:16/9;display:none}
+.camera.ativa{display:block}
+video{width:100%;height:100%;object-fit:cover;display:block}
+.mira{position:absolute;inset:22% 12%;border:2px solid rgba(111,168,199,.75);border-radius:4px;pointer-events:none}
+.mira::after{content:'ENQUADRE A PLACA AQUI';position:absolute;top:-22px;left:0;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.1em;color:var(--instr)}
+.contador{position:absolute;bottom:8px;right:10px;font-family:'IBM Plex Mono',monospace;font-size:11px;background:rgba(0,0,0,.65);padding:4px 8px;border-radius:3px;color:var(--instr)}
+
+/* ---- leituras ---- */
+.fluxo{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--apagado);min-height:22px;margin-top:10px;word-break:break-all}
+.item{display:flex;justify-content:space-between;gap:10px;padding:11px 0;border-bottom:1px solid var(--linha);font-family:'IBM Plex Mono',monospace;font-size:13px}
+.item:last-child{border-bottom:0}
+.item b{color:var(--ambar);font-weight:600}
+.item span{color:var(--apagado);font-size:11px;text-align:right;flex-shrink:0}
+.vazio{color:var(--apagado);font-size:13px;padding:6px 0}
+
+/* ---- placa desenhada (elemento assinatura) ---- */
+.placa-fig{background:var(--placa);border-radius:7px;overflow:hidden;box-shadow:0 4px 18px rgba(0,0,0,.5);width:100%;max-width:340px}
+.placa-fig .faixa{background:var(--faixa);color:#fff;font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.22em;padding:4px 8px;display:flex;justify-content:space-between;align-items:center}
+.placa-fig .chars{color:#0B0B0B;font-weight:900;font-size:clamp(30px,10vw,46px);letter-spacing:.1em;text-align:center;padding:12px 8px 14px;font-family:'Archivo',sans-serif}
+.placa-fig.antiga{background:#C9CCC6}
+.placa-fig.antiga .faixa{background:#3A3D38;letter-spacing:.14em}
+.par{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin:18px 0}
+.par figure{flex:1 1 240px;max-width:340px}
+.par figcaption{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--apagado);text-align:center;margin-top:7px}
+
+/* ---- alerta em tela cheia ---- */
+.alerta{
+  position:fixed;inset:0;z-index:60;background:var(--alerta-fundo);
+  display:none;flex-direction:column;align-items:center;justify-content:center;
+  padding:24px;text-align:center;overflow-y:auto;
+}
+.alerta.on{display:flex;animation:pulsa 1.1s ease-in-out infinite}
+@keyframes pulsa{0%,100%{background:var(--alerta-fundo)}50%{background:#4D3000}}
+.alerta h2{font-size:clamp(22px,7vw,32px);font-weight:900;text-transform:uppercase;letter-spacing:.04em;color:var(--ambar);margin-bottom:4px}
+.alerta .proc{font-family:'IBM Plex Mono',monospace;font-size:13px;color:#E8D5A8;margin-bottom:6px}
+.alerta .geo{font-family:'IBM Plex Mono',monospace;font-size:12px;color:#C4B48C;line-height:1.7;margin:10px 0 22px}
+.alerta button{max-width:320px;background:var(--ambar);color:#2A1A00;border-color:var(--ambar);font-size:16px;padding:16px}
+
+@media (prefers-reduced-motion:reduce){
+  .alerta.on{animation:none;background:#4D3000}
+  *{transition:none!important}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="marca">Leitor de <span>Placas</span></div>
+  <div class="pill" id="estado">Parado</div>
+</header>
+
+<!-- LISTA -->
+<section class="bloco">
+  <div class="rot"><span>1 — Sua lista</span><b id="qtdLista">0 placas</b></div>
+  <label for="lista">Uma placa por linha</label>
+  <textarea id="lista" placeholder="ABC1234
+ABC1D23
+XYZ4B56"></textarea>
+  <div class="dica">Cada placa é gravada nos dois formatos automaticamente. Se a lista está no padrão antigo e o carro já trocou para Mercosul, o alerta continua disparando.</div>
+  <div class="btns">
+    <button class="primario" id="btnCarregar">Carregar lista colada</button>
+  </div>
+  <label for="arqCsv" style="margin-top:14px">Ou importe o arquivo CSV direto</label>
+  <input type="file" id="arqCsv" style="font-family:'IBM Plex Mono',monospace;font-size:13px;padding:10px;background:var(--asfalto)">
+  <label style="display:flex;align-items:center;gap:9px;margin-top:12px;text-transform:none;letter-spacing:0;color:var(--texto);font-size:13px">
+    <input type="checkbox" id="soVigentes" style="width:auto;margin:0;flex:0 0 auto">
+    Carregar só placas com ordem vigente (coluna <code>validade_ordem</code> com data futura)
+  </label>
+  <div class="fluxo" id="resumoLista"></div>
+</section>
+
+<!-- LEITURA -->
+<section class="bloco">
+  <div class="rot"><span>2 — Leitura</span><b id="creditos">0 leituras nesta sessão</b></div>
+  <label for="token">Token do Plate Recognizer</label>
+  <input id="token" type="password" placeholder="cole seu token aqui" autocomplete="off">
+  <div class="dica">Conta gratuita: 2.500 leituras por mês. Cada frame enviado consome uma.</div>
+
+  <label for="intervalo">Enviar um frame a cada</label>
+  <select id="intervalo">
+    <option value="3000">3 segundos — econômico</option>
+    <option value="2000" selected>2 segundos — equilibrado</option>
+    <option value="1200">1,2 segundos — gasta rápido</option>
+  </select>
+
+  <div class="btns">
+    <button class="primario" id="btnAoVivo">Iniciar leitura ao vivo</button>
+    <button id="btnFoto">Ler uma foto</button>
+  </div>
+  <input type="file" id="arquivo" accept="image/*" capture="environment" style="display:none">
+
+  <div class="camera" id="camera">
+    <video id="video" playsinline muted></video>
+    <div class="mira"></div>
+    <div class="contador" id="contador">0</div>
+  </div>
+  <div class="fluxo" id="fluxo">Nenhuma leitura ainda.</div>
+  <div class="btns" id="linhaParar" style="display:none">
+    <button class="parar" id="btnParar">Parar leitura</button>
+  </div>
+</section>
+
+<!-- REGISTROS -->
+<section class="bloco">
+  <div class="rot"><span>3 — Localizações</span><b id="qtdHits">0</b></div>
+  <div id="hits"><div class="vazio">Nenhuma placa da lista foi localizada ainda.</div></div>
+  <div class="btns">
+    <button id="btnCsv">Baixar relatório CSV</button>
+  </div>
+</section>
+
+</div>
+
+<!-- ALERTA -->
+<div class="alerta" id="alerta" role="alertdialog" aria-live="assertive">
+  <h2>Placa localizada</h2>
+  <div class="proc" id="alertaProc"></div>
+  <div class="par" id="alertaPlacas"></div>
+  <div class="geo" id="alertaGeo">Obtendo localização…</div>
+  <button id="btnFechar">Confirmar e voltar</button>
+</div>
+
+<canvas id="canvas" style="display:none"></canvas>
+
+<script>
+'use strict';
+
+const TAB = 'ABCDEFGHIJ';
+const $ = id => document.getElementById(id);
+
+let lista = [];        // [{exibe, antiga, mercosul, chaves:[]}]
+let indice = new Map();// chave -> item
+let leituras = 0;
+let hits = [];
+let timer = null;
+let stream = null;
+let ocupado = false;
+let ultimoAlerta = {};
+
+/* ---------- normalização ---------- */
+function limpa(t){ return (t||'').toUpperCase().replace(/[^A-Z0-9]/g,''); }
+function ehAntiga(p){ return /^[A-Z]{3}[0-9]{4}$/.test(p); }
+function ehMercosul(p){ return /^[A-Z]{3}[0-9][A-Z][0-9]{2}$/.test(p); }
+
+function formatos(bruta){
+  const p = limpa(bruta);
+  if(ehAntiga(p)){
+    const m = p.slice(0,4) + TAB[+p[4]] + p.slice(5);
+    return {antiga:p, mercosul:m};
+  }
+  if(ehMercosul(p)){
+    const i = TAB.indexOf(p[4]);
+    // K a Z: placa nativa Mercosul, não existe equivalente antiga
+    return {antiga: i >= 0 ? p.slice(0,4) + i + p.slice(5) : null, mercosul:p};
+  }
+  return null;
+}
+
+function construir(entradas){
+  // entradas: [{placa, validade, processo, status}]
+  lista = []; indice = new Map();
+  const ruins = [];
+  for(const e of entradas){
+    const f = formatos(e.placa);
+    if(!f){ if(e.placa) ruins.push(e.placa); continue; }
+    const chaves = [f.mercosul]; if(f.antiga) chaves.push(f.antiga);
+    const item = {exibe:e.placa, antiga:f.antiga, mercosul:f.mercosul, chaves,
+                  validade:e.validade||'', processo:e.processo||'', status:e.status||''};
+    lista.push(item);
+    chaves.forEach(c => indice.set(c, item));
+  }
+  $('qtdLista').textContent = lista.length + (lista.length===1?' placa':' placas');
+  return ruins;
+}
+
+function carregarLista(){
+  const linhas = $('lista').value.split(/[\n,;]+/).map(limpa).filter(Boolean);
+  const ruins = construir(linhas.map(p => ({placa:p})));
+  $('resumoLista').textContent = ruins.length
+    ? 'Fora do padrão, ignoradas: ' + ruins.join(' ')
+    : (lista.length ? lista.length + ' placas prontas — ' + indice.size + ' variações monitoradas.' : 'Cole ao menos uma placa.');
+}
+
+/* ---------- importar CSV ---------- */
+function parseCSV(txt){
+  const linhas=[]; let campo='', linha=[], dentro=false;
+  txt = txt.replace(/^﻿/,'').replace(/\r\n?/g,'\n');
+  for(let i=0;i<txt.length;i++){
+    const c = txt[i];
+    if(dentro){
+      if(c === '"'){ if(txt[i+1] === '"'){ campo+='"'; i++; } else dentro=false; }
+      else campo += c;
+    } else if(c === '"'){ dentro = true; }
+    else if(c === ',' || c === ';'){ linha.push(campo); campo=''; }
+    else if(c === '\n'){ linha.push(campo); linhas.push(linha); linha=[]; campo=''; }
+    else campo += c;
+  }
+  if(campo.length || linha.length){ linha.push(campo); linhas.push(linha); }
+  return linhas;
+}
+function cab(h){ return (h||'').toUpperCase().replace(/[^A-Z0-9]/g,''); }
+function achaCol(cabs, nomes){ for(const n of nomes){ const i = cabs.indexOf(n); if(i>=0) return i; } return -1; }
+function parseData(s){
+  s=(s||'').trim(); if(!s) return null;
+  let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+  if(m) return new Date(+m[3], +m[2]-1, +m[1]);
+  m = s.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/);
+  if(m) return new Date(+m[1], +m[2]-1, +m[3]);
+  return null;
+}
+function lerCSV(file){
+  const fr = new FileReader();
+  fr.onload = ev => {
+    const linhas = parseCSV(ev.target.result).filter(l => l.some(c => (c||'').trim() !== ''));
+    if(linhas.length < 2){ $('resumoLista').textContent = 'CSV vazio ou sem linhas de dados.'; return; }
+    const cabs = linhas[0].map(cab);
+    const iP = achaCol(cabs, ['PLACA','PLACAS','PLACAMERCOSUL']);
+    if(iP < 0){ $('resumoLista').textContent = 'Não encontrei a coluna de placa (esperado: placa, placas ou placa_mercosul).'; return; }
+    const iV = achaCol(cabs, ['VALIDADEORDEM','VALIDADE']);
+    const iPr = achaCol(cabs, ['PROCESSO']);
+    const iS = achaCol(cabs, ['STATUSORDEM','STATUS']);
+    const soVig = $('soVigentes').checked;
+    const hoje = new Date(); hoje.setHours(0,0,0,0);
+    let semData=0, vencidas=0, vigentes=0;
+    const usadas=[];
+    for(let k=1;k<linhas.length;k++){
+      const row = linhas[k];
+      const placa = limpa(row[iP]||'');
+      if(!placa) continue;
+      const validade = iV>=0 ? (row[iV]||'') : '';
+      const d = parseData(validade);
+      const vig = !!validade && d && d>=hoje;
+      const venc = !!validade && d && d<hoje;
+      if(!validade) semData++; else if(vig) vigentes++; else if(venc) vencidas++;
+      if(soVig && !vig) continue;
+      usadas.push({placa, validade, processo:iPr>=0?(row[iPr]||''):'', status:iS>=0?(row[iS]||''):''});
+    }
+    $('lista').value = usadas.map(e => e.placa).join('\n');
+    const ruins = construir(usadas);
+    let msg = usadas.length + ' placas carregadas';
+    if(ruins.length) msg += ' (' + ruins.length + ' fora do padrão ignoradas)';
+    msg += '. ';
+    if(iV < 0){
+      msg += 'O arquivo não tem a coluna validade_ordem — nenhuma dessas placas tem ordem comprovada aqui.';
+    } else {
+      msg += vigentes + ' com ordem vigente, ' + vencidas + ' vencidas, ' + semData + ' sem data.';
+      if(soVig) msg += ' Carreguei só as vigentes.';
+      else if(semData + vencidas > 0) msg += ' ATENÇÃO: ' + (semData + vencidas) + ' sem ordem vigente comprovável.';
+    }
+    $('resumoLista').textContent = msg;
+  };
+  fr.readAsText(file, 'UTF-8');
+}
+
+/* ---------- comparação ---------- */
+function distancia(a,b){
+  if(a.length!==b.length) return 99;
+  let d=0; for(let i=0;i<a.length;i++) if(a[i]!==b[i]) d++;
+  return d;
+}
+function procurar(lida){
+  const p = limpa(lida);
+  if(indice.has(p)) return {item:indice.get(p), exato:true};
+  for(const item of lista)
+    for(const c of item.chaves)
+      if(distancia(p,c)===1) return {item, exato:false};
+  return null;
+}
+
+/* ---------- API ---------- */
+async function lerImagem(blob){
+  const tk = $('token').value.trim();
+  if(!tk){ mostrarFluxo('Falta o token do Plate Recognizer.'); return null; }
+  const fd = new FormData();
+  fd.append('upload', blob, 'f.jpg');
+  fd.append('regions','br');
+  const r = await fetch('https://api.platerecognizer.com/v1/plate-reader/', {
+    method:'POST', headers:{Authorization:'Token '+tk}, body:fd
+  });
+  leituras++;
+  $('creditos').textContent = leituras + (leituras===1?' leitura nesta sessão':' leituras nesta sessão');
+  $('contador').textContent = leituras;
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  const j = await r.json();
+  return (j.results||[]).map(x => limpa(x.plate));
+}
+
+/* ---------- fluxo de leitura ---------- */
+function mostrarFluxo(t){ $('fluxo').textContent = t; }
+
+async function processar(blob){
+  if(ocupado) return; ocupado = true;
+  try{
+    const placas = await lerImagem(blob);
+    if(!placas) return;
+    if(!placas.length){ mostrarFluxo('Nenhuma placa no frame.'); return; }
+    mostrarFluxo('Lido: ' + placas.join('  '));
+    for(const p of placas){
+      const achou = procurar(p);
+      if(achou && Date.now() - (ultimoAlerta[achou.item.mercosul]||0) > 30000){
+        ultimoAlerta[achou.item.mercosul] = Date.now();
+        disparar(achou.item, p, achou.exato);
+      }
+    }
+  }catch(e){
+    mostrarFluxo('Falha na leitura: ' + e.message);
+  }finally{ ocupado = false; }
+}
+
+/* ---------- alerta ---------- */
+function figura(txt, mercosul){
+  return '<figure><div class="placa-fig ' + (mercosul?'':'antiga') + '">'
+    + '<div class="faixa"><span>' + (mercosul?'BRASIL':'BRASIL') + '</span><span>' + (mercosul?'MERCOSUL':'') + '</span></div>'
+    + '<div class="chars">' + txt + '</div></div>'
+    + '<figcaption>' + (mercosul?'Padrão Mercosul':'Padrão antigo') + '</figcaption></figure>';
+}
+
+function disparar(item, lida, exato){
+  let html = figura(item.mercosul, true);
+  if(item.antiga) html += figura(item.antiga, false);
+  $('alertaPlacas').innerHTML = html;
+  $('alertaProc').textContent = exato
+    ? 'Leitura exata: ' + lida
+    : 'Leitura aproximada: ' + lida + ' — confira visualmente antes de agir';
+  $('alertaGeo').textContent = 'Obtendo localização…';
+  $('alerta').classList.add('on');
+
+  try{ navigator.vibrate && navigator.vibrate([300,120,300,120,300]); }catch(e){}
+  try{
+    const f = new SpeechSynthesisUtterance('Placa localizada. ' + item.mercosul.split('').join(' '));
+    f.lang = 'pt-BR'; f.rate = .85; speechSynthesis.speak(f);
+  }catch(e){}
+
+  const reg = {placa:item.mercosul, antiga:item.antiga||'', processo:item.processo||'', lida, exato, quando:new Date().toISOString(), lat:'', lon:''};
+  navigator.geolocation && navigator.geolocation.getCurrentPosition(pos => {
+    reg.lat = pos.coords.latitude.toFixed(6);
+    reg.lon = pos.coords.longitude.toFixed(6);
+    $('alertaGeo').textContent = reg.lat + ', ' + reg.lon + '\n' + new Date().toLocaleString('pt-BR');
+    render();
+  }, () => {
+    $('alertaGeo').textContent = 'Localização indisponível\n' + new Date().toLocaleString('pt-BR');
+  }, {enableHighAccuracy:true, timeout:8000});
+
+  hits.unshift(reg); render();
+}
+
+function render(){
+  $('qtdHits').textContent = hits.length;
+  $('hits').innerHTML = hits.length ? hits.map(h =>
+    '<div class="item"><b>' + h.placa + (h.antiga?' / '+h.antiga:'') + '</b>'
+    + '<span>' + new Date(h.quando).toLocaleTimeString('pt-BR')
+    + (h.lat ? '<br>'+h.lat+', '+h.lon : '<br>sem GPS') + '</span></div>'
+  ).join('') : '<div class="vazio">Nenhuma placa da lista foi localizada ainda.</div>';
+}
+
+/* ---------- câmera ---------- */
+async function iniciar(){
+  if(!lista.length){ mostrarFluxo('Carregue a lista antes de iniciar.'); return; }
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    mostrarFluxo('A câmera ao vivo exige que esta página esteja em HTTPS. Use "Ler uma foto" ou hospede o arquivo.');
+    return;
+  }
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}, width:{ideal:1280}}});
+    $('video').srcObject = stream; await $('video').play();
+    $('camera').classList.add('ativa');
+    $('linhaParar').style.display = 'flex';
+    $('btnAoVivo').disabled = true;
+    $('estado').textContent = 'Lendo'; $('estado').classList.add('on');
+    timer = setInterval(capturar, +$('intervalo').value);
+  }catch(e){
+    mostrarFluxo('Câmera negada ou indisponível: ' + e.message);
+  }
+}
+
+function capturar(){
+  const v = $('video'); if(!v.videoWidth) return;
+  const c = $('canvas'); c.width = 1280; c.height = Math.round(1280 * v.videoHeight / v.videoWidth);
+  c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+  c.toBlob(b => b && processar(b), 'image/jpeg', .72);
+}
+
+function parar(){
+  clearInterval(timer); timer = null;
+  stream && stream.getTracks().forEach(t => t.stop()); stream = null;
+  $('camera').classList.remove('ativa');
+  $('linhaParar').style.display = 'none';
+  $('btnAoVivo').disabled = false;
+  $('estado').textContent = 'Parado'; $('estado').classList.remove('on');
+}
+
+/* ---------- CSV ---------- */
+function csv(){
+  if(!hits.length){ mostrarFluxo('Nada para exportar ainda.'); return; }
+  const linhas = [['placa_mercosul','placa_antiga','processo','placa_lida','match_exato','data_hora','latitude','longitude']]
+    .concat(hits.map(h => [h.placa,h.antiga,h.processo||'',h.lida,h.exato?'sim':'nao',h.quando,h.lat,h.lon]));
+  const txt = linhas.map(l => l.join(';')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([txt], {type:'text/csv'}));
+  a.download = 'localizacoes.csv'; a.click();
+}
+
+/* ---------- eventos ---------- */
+$('btnCarregar').onclick = carregarLista;
+$('arqCsv').onchange = e => { const f = e.target.files[0]; if(f) lerCSV(f); e.target.value=''; };
+$('btnAoVivo').onclick = iniciar;
+$('btnParar').onclick = parar;
+$('btnCsv').onclick = csv;
+$('btnFoto').onclick = () => { if(!lista.length){ mostrarFluxo('Carregue a lista antes.'); return; } $('arquivo').click(); };
+$('arquivo').onchange = e => { const f = e.target.files[0]; if(f) processar(f); e.target.value=''; };
+$('btnFechar').onclick = () => $('alerta').classList.remove('on');
+$('intervalo').onchange = () => { if(timer){ clearInterval(timer); timer = setInterval(capturar, +$('intervalo').value); } };
+</script>
+</body>
+</html>
